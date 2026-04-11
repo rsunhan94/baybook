@@ -151,6 +151,7 @@ body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospa
 .form-group{display:flex;flex-direction:column;gap:4px;}
 .form-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:700;}
 .form-input,.form-select,.form-textarea{background:var(--surface);border:1px solid var(--border2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;padding:8px 10px;outline:none;transition:border-color .15s;width:100%;}
+.form-select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238aaa9a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px;}
 .form-input:focus,.form-select:focus,.form-textarea:focus{border-color:var(--accent);}
 input[type="date"].form-input{color-scheme:dark;}
 .form-select option{background:var(--card);}
@@ -1000,6 +1001,25 @@ function updateSyncIndicator(state){
 // Online/offline detection
 window.addEventListener('online',()=>{ updateSyncIndicator(''); scheduleSyncToServer(); });
 window.addEventListener('offline',()=>updateSyncIndicator('offline'));
+
+// iOS Safari doesn't reliably fire the 'online' event
+// Poll every 30 seconds and sync any pending dirty records
+setInterval(()=>{
+  if(navigator.onLine && getSession()?.access_token){
+    const dirty=getDirty();
+    const hasDirty=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
+    if(hasDirty) scheduleSyncToServer();
+  }
+}, 30000);
+
+// Also sync when app comes back to foreground (user switches back from another app)
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && navigator.onLine && getSession()?.access_token){
+    const dirty=getDirty();
+    const hasDirty=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
+    if(hasDirty) scheduleSyncToServer();
+  }
+});
 
 // ══ DATA ══
 function getCurrencySymbol(){
