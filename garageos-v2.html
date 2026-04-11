@@ -825,7 +825,10 @@ async function apiCall(method, path, body=null){
     if(!res.ok) return {error:data.error||'Request failed', status:res.status};
     return {data};
   }catch(e){
-    return {error:'offline'};
+    console.error('API fetch error:', e.message, path);
+    // Only treat as offline if actually offline
+    if(!navigator.onLine) return {error:'offline'};
+    return {error:'fetch_failed: '+e.message};
   }
 }
 
@@ -2207,7 +2210,7 @@ async function startCheckout(){
   const res=await apiCall('POST','/stripe/checkout');
   if(btn&&btn.tagName==='BUTTON'){btn.textContent='SUBSCRIBE NOW';btn.disabled=false;}
   if(res.error){
-    toast(res.error==='offline'?'No internet connection.':'Error: '+res.error,'error');
+    toast('Error: '+res.error,'error');
     return;
   }
   window.open(res.data.url,'_blank');
