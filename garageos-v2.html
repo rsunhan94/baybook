@@ -2195,15 +2195,22 @@ function stopPaymentPolling(){
 }
 
 async function startCheckout(){
-  const btn=document.querySelector('#paywall-screen .btn-primary');
-  if(btn){btn.textContent='Opening...';btn.disabled=true;}
+  const btn=document.querySelector('#paywall-screen .btn-primary') || document.getElementById('trial-banner');
+  if(btn&&btn.tagName==='BUTTON'){btn.textContent='Opening...';btn.disabled=true;}
+  const session=getSession();
+  if(!session?.access_token){
+    toast('Please sign in again to subscribe.','error');
+    signOut();
+    return;
+  }
   const res=await apiCall('POST','/stripe/checkout');
-  if(btn){btn.textContent='SUBSCRIBE NOW';btn.disabled=false;}
-  if(res.error){toast('Could not connect. Please try again.','error');return;}
-  // Open Stripe checkout — polling will detect payment completion
+  if(btn&&btn.tagName==='BUTTON'){btn.textContent='SUBSCRIBE NOW';btn.disabled=false;}
+  if(res.error){
+    toast(res.error==='offline'?'No internet connection.':'Error: '+res.error,'error');
+    return;
+  }
   window.open(res.data.url,'_blank');
-  // Show waiting message
-  if(btn){ btn.textContent='Waiting for payment...'; }
+  if(btn&&btn.tagName==='BUTTON') btn.textContent='Waiting for payment...';
 }
 
 function signOut(){
