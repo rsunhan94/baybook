@@ -1113,7 +1113,7 @@ function showView(name) {
   document.querySelectorAll('.nav').forEach(n=>n.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelector(`[data-view="${name}"]`).classList.add('active');
-  ({jobs:()=>{renderJobs();renderJobStats();},invoices:()=>{renderInvs();renderInvStats();},income:renderIncome,settings:loadSettings})[name]?.();
+  ({jobs:()=>{renderJobs();renderJobStats();},invoices:()=>{renderInvs();renderInvStats();},income:renderIncome,settings:()=>{loadSettings();addSignOutToSettings();}})[name]?.();
 }
 
 // ══ JOBS ══
@@ -2083,6 +2083,9 @@ function showApp(){
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('paywall-screen').style.display='none';
   document.getElementById('main-shell').style.display='grid';
+  showView('jobs');
+  // Always ensure sign out button is present
+  setTimeout(addSignOutToSettings, 100);
 }
 
 async function submitAuth(){
@@ -2207,16 +2210,17 @@ function signOut(){
 
 // Add sign out option to settings
 function addSignOutToSettings(){
+  // Wait until settings content is in DOM
   const dangerZone=document.querySelector('#view-settings .content > div:last-child');
-  if(dangerZone&&!document.getElementById('sign-out-btn')){
-    const btn=document.createElement('button');
-    btn.id='sign-out-btn';
-    btn.className='btn btn-secondary';
-    btn.style.marginTop='12px';
-    btn.textContent='SIGN OUT';
-    btn.onclick=signOut;
-    dangerZone.appendChild(btn);
-  }
+  if(!dangerZone){ setTimeout(addSignOutToSettings,200); return; }
+  if(document.getElementById('sign-out-btn')) return; // already added
+  const btn=document.createElement('button');
+  btn.id='sign-out-btn';
+  btn.className='btn btn-secondary';
+  btn.style.marginTop='12px';
+  btn.textContent='SIGN OUT';
+  btn.onclick=signOut;
+  dangerZone.appendChild(btn);
 }
 
 
