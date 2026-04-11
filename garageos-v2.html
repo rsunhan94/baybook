@@ -2148,10 +2148,13 @@ async function checkAccessAndLaunch(){
   const localJobs=getJobs();
   if(localJobs.length===0 && getInvs().length===0){
     await restoreFromServer();
+    renderJobs();renderJobStats();renderInvs();renderInvStats();
+    showView('jobs');
   } else {
     scheduleSyncToServer();
+    renderJobs();renderJobStats();
+    showView('jobs');
   }
-  renderJobs();renderJobStats();
 }
 
 // ── TRIAL BANNER ──
