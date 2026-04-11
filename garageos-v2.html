@@ -826,8 +826,6 @@ async function apiCall(method, path, body=null){
     return {data};
   }catch(e){
     console.error('API fetch error:', e.message, path);
-    // Only treat as offline if actually offline
-    if(!navigator.onLine) return {error:'offline'};
     return {error:'fetch_failed: '+e.message};
   }
 }
@@ -888,7 +886,7 @@ async function syncToServer(){
         address:cfg.address,prefix:cfg.prefix,currency:cfg.currency,
         default_lr:cfg.defaultLr||'',default_tax:cfg.defaultTax||''
       });
-      if(res.error==='offline'){ updateSyncIndicator('offline'); return; }
+      if(res.error?.startsWith('fetch_failed')||res.error==='offline'){ updateSyncIndicator('offline'); return; }
       if(res.status===401){ clearSession(); showAuthScreen(); return; }
     }
     // Sync only dirty jobs
@@ -904,7 +902,7 @@ async function syncToServer(){
           hours:j.hours,est_hours:j.estHours||j.hours,lr:j.lr,pcost:j.pcost,tax:j.tax,
           notes:j.notes,waiting_notes:j.waitingNotes,job_date:j.jobDate||''
         });
-        if(res.error==='offline'){ updateSyncIndicator('offline'); return; }
+        if(res.error?.startsWith('fetch_failed')||res.error==='offline'){ updateSyncIndicator('offline'); return; }
       }
     }
     // Sync only dirty invoices
@@ -921,7 +919,7 @@ async function syncToServer(){
           total:i.total,notes:i.notes||'',status:i.status,
           date:i.date,paid_date:i.paidDate||null
         });
-        if(res.error==='offline'){ updateSyncIndicator('offline'); return; }
+        if(res.error?.startsWith('fetch_failed')||res.error==='offline'){ updateSyncIndicator('offline'); return; }
       }
     }
     clearDirty();
@@ -944,7 +942,7 @@ async function restoreFromServer(){
       apiCall('GET','/invoices'),
       apiCall('GET','/config')
     ]);
-    if(jobsRes.error==='offline'){ updateSyncIndicator('offline'); return false; }
+    if(jobsRes.error?.startsWith('fetch_failed')||jobsRes.error==='offline'){ updateSyncIndicator('offline'); return false; }
     if(jobsRes.status===401){ clearSession(); showAuthScreen(); return false; }
     if(jobsRes.data){
       const jobs=jobsRes.data.map(j=>({
@@ -2105,7 +2103,7 @@ async function submitAuth(){
   btn.disabled=false;
   btn.textContent=_authMode==='login'?'SIGN IN':'START FREE TRIAL';
   if(res.error){
-    errEl.textContent=res.error==='offline'?'No internet connection. Please try again.':res.error;
+    errEl.textContent=res.error?.startsWith('fetch_failed')||res.error==='offline'?'No internet connection. Please try again.':res.error;
     errEl.style.display='block';
     return;
   }
