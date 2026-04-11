@@ -800,8 +800,9 @@ function clearDirty(){ setDirty({jobs:{},invs:{},cfg:false}); }
 // ══ API CALLS ══
 async function apiCall(method, path, body=null){
   const session=getSession();
+  const token=session?.access_token||session?.token||null;
   const headers={'Content-Type':'application/json'};
-  if(session?.access_token) headers['Authorization']='Bearer '+session.access_token;
+  if(token) headers['Authorization']='Bearer '+token;
   const opts={method, headers};
   if(body) opts.body=JSON.stringify(body);
   try{
@@ -810,9 +811,9 @@ async function apiCall(method, path, body=null){
     if(res.status===401){
       const refreshed=await refreshSession();
       if(refreshed){
-        // Retry with new token
         const session2=getSession();
-        if(session2?.access_token) opts.headers['Authorization']='Bearer '+session2.access_token;
+        const token2=session2?.access_token||session2?.token||null;
+        if(token2) opts.headers['Authorization']='Bearer '+token2;
         const res2=await fetch(API_URL+path, opts);
         const data2=await res2.json();
         if(!res2.ok) return {error:data2.error||'Request failed', status:res2.status};
@@ -2198,9 +2199,9 @@ async function startCheckout(){
   const btn=document.querySelector('#paywall-screen .btn-primary') || document.getElementById('trial-banner');
   if(btn&&btn.tagName==='BUTTON'){btn.textContent='Opening...';btn.disabled=true;}
   const session=getSession();
-  if(!session?.access_token){
-    toast('Please sign in again to subscribe.','error');
-    signOut();
+  console.log('Session at checkout:', JSON.stringify(session));
+  if(!session?.access_token && !session?.token){
+    toast('Please sign out and sign in again.','error');
     return;
   }
   const res=await apiCall('POST','/stripe/checkout');
