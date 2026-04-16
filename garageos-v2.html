@@ -1437,7 +1437,7 @@ function openInvModalWithOverrides(j){
   const did=nextIID();
   const d=new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   document.getElementById('inv-preview').innerHTML=buildInvHTML(cfg,j.customer,j.phone||'',j.email||'',`${j.year} ${j.make} ${j.model}`,j.plate||'—',j.task,notes,hours,lr,pcost,tr,sub,taxA,total,did,d,'unpaid');
-  _pendInv={id:uid(),did,jobId:j.id,jobDid:j.did,customer:j.customer,email:j.email||'',vehicle:`${j.year} ${j.make} ${j.model}`,task:j.task,hours,pcost,lr,tr,sub,tax:taxA,total,notes,status:'unpaid',date:Date.now(),created:Date.now()};
+  _pendInv={id:uid(),did,jobId:j.id,jobDid:j.did,customer:j.customer,email:j.email||'',vehicle:`${j.year} ${j.make} ${j.model}`,plate:j.plate||'',task:j.task,hours,pcost,lr,tr,sub,tax:taxA,total,notes,status:'unpaid',date:Date.now(),created:Date.now()};
   const invs=getInvs(); invs.push(_pendInv); W('invs',invs);
   markDirty('invs',_pendInv.id); scheduleSyncToServer();
   const jobs=getJobs(); const ji=jobs.findIndex(x=>x.id===j.id);
@@ -1591,10 +1591,14 @@ function viewInv(id){
   const inv=getInvs().find(i=>i.id===id);if(!inv)return;
   const cfg=getCfg();
   const d=new Date(inv.date).toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  // Look up plate from linked job since invoice doesn't store it
+  const linkedJob=inv.jobId?getJobs().find(j=>j.id===inv.jobId):null;
+  const plate=inv.plate||linkedJob?.plate||'—';
+  const phone=linkedJob?.phone||'';
   document.getElementById('inv-modal-title').textContent='INVOICE';
   document.getElementById('inv-edit-form').style.display='none';
   document.getElementById('inv-preview').style.display='';
-  document.getElementById('inv-preview').innerHTML=buildInvHTML(cfg,inv.customer,'',inv.email||'',inv.vehicle,'',inv.task,inv.notes||'',inv.hours,inv.lr,inv.pcost,inv.tr,inv.sub,inv.tax,inv.total,inv.did,d,inv.status);
+  document.getElementById('inv-preview').innerHTML=buildInvHTML(cfg,inv.customer,phone,inv.email||'',inv.vehicle,plate,inv.task,inv.notes||'',inv.hours,inv.lr,inv.pcost,inv.tr,inv.sub,inv.tax,inv.total,inv.did,d,inv.status);
   document.getElementById('inv-preview').style.display='';
   document.getElementById('inv-edit-form').style.display='none';
   document.getElementById('inv-edit-btn').style.display=inv.status==='paid'?'none':'';
@@ -1602,6 +1606,7 @@ function viewInv(id){
   document.getElementById('inv-save-edit-btn').style.display='none';
   document.getElementById('inv-mark-paid-btn').style.display=inv.status==='paid'?'none':'';
   document.getElementById('inv-delete-btn').style.display='';
+  document.getElementById('inv-print-btn').style.display='';
   const emailBtn=document.getElementById('inv-email-btn');
   if(emailBtn) emailBtn.style.display='';
   _pendInv=null;_viewInvId=id;openModal('modal-inv');
@@ -2143,6 +2148,8 @@ async function checkAccessAndLaunch(){
   if(profile?.subscription_status==='trialing'){
     const days=res.data.trial_days_left||0;
     updateTrialBanner(days);
+  } else if(profile?.subscription_status==='active'){
+    hideTrialBanner();
   } else {
     hideTrialBanner();
   }
@@ -2165,18 +2172,25 @@ function updateTrialBanner(days){
   if(!el){
     el=document.createElement('div');
     el.id='trial-banner';
-    el.style.cssText='background:var(--accent-dim);border-bottom:1px solid var(--accent);padding:7px 16px;text-align:center;font-size:11px;color:var(--accent);font-weight:700;letter-spacing:1px;cursor:pointer;flex-shrink:0;';
+    // Position outside the shell so it spans full width
+    el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:500;background:var(--accent-dim);border-bottom:1px solid var(--accent);padding:8px 16px;text-align:center;font-size:11px;color:var(--accent);font-weight:700;letter-spacing:1px;cursor:pointer;line-height:1.4;';
     el.onclick=startCheckout;
-    // Insert at top of main shell
+    document.body.insertBefore(el, document.body.firstChild);
+    // Push shell down to make room for banner
     const shell=document.getElementById('main-shell');
-    if(shell) shell.insertBefore(el,shell.firstChild);
+    if(shell) shell.style.paddingTop='36px';
   }
   const urgency=days<=1?'🔴':days<=3?'🟠':'⚡';
   el.textContent=`${urgency} ${days} day${days===1?'':'s'} left in your free trial — tap to subscribe`;
 }
 function hideTrialBanner(){
   const el=document.getElementById('trial-banner');
-  if(el) el.remove();
+  if(el){
+    el.remove();
+    // Remove padding added for banner
+    const shell=document.getElementById('main-shell');
+    if(shell) shell.style.paddingTop='';
+  }
 }
 
 // ── POST-PAYMENT POLLING ──
@@ -2186,8 +2200,10 @@ function startPaymentPolling(){
   stopPaymentPolling();
   _paymentPollTimer=setInterval(async()=>{
     const res=await apiCall('GET','/auth/me');
-    if(res.data?.access){
+    if(res.data?.access && res.data?.profile?.subscription_status==='active'){
       stopPaymentPolling();
+      hideTrialBanner();
+      toast('Subscription activated! Welcome to BayBook.','success');
       await checkAccessAndLaunch();
     }
   },10000);
