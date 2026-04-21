@@ -370,7 +370,7 @@ input[type="date"].form-input{color-scheme:dark;}
 <body>
 
 <!-- ══ AUTH SCREEN ══ -->
-<div id="auth-screen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;">
+<div id="auth-screen" style="display:flex;position:fixed;inset:0;background:var(--bg);z-index:1000;flex-direction:column;align-items:center;justify-content:center;padding:32px;">
   <div style="width:100%;max-width:380px;">
     <div style="text-align:center;margin-bottom:40px;">
       <div style="width:52px;height:52px;background:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
@@ -379,17 +379,14 @@ input[type="date"].form-input{color-scheme:dark;}
       <div style="font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:32px;letter-spacing:2px;text-transform:uppercase;">BAY<span style="color:var(--accent);">BOOK</span></div>
       <div style="font-size:11px;color:var(--muted);letter-spacing:2px;margin-top:4px;">JOB MANAGEMENT FOR MECHANICS</div>
     </div>
-
     <!-- Tab switcher -->
     <div style="display:flex;margin-bottom:24px;border:1px solid var(--border);">
       <button id="auth-tab-login" onclick="switchAuthTab('login')" style="flex:1;background:var(--accent);color:#000;border:none;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;padding:10px;cursor:pointer;">Sign In</button>
       <button id="auth-tab-register" onclick="switchAuthTab('register')" style="flex:1;background:transparent;color:var(--muted);border:none;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;padding:10px;cursor:pointer;">Create Account</button>
     </div>
-
     <div id="auth-register-note" style="display:none;background:var(--accent-dim);border:1px solid var(--accent);padding:10px 14px;margin-bottom:16px;font-size:11px;color:var(--accent);font-weight:700;letter-spacing:1px;text-align:center;">
       ⚡ 7-DAY FREE TRIAL — NO CREDIT CARD REQUIRED
     </div>
-
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div>
         <label style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:700;display:block;margin-bottom:4px;">Email</label>
@@ -402,7 +399,6 @@ input[type="date"].form-input{color-scheme:dark;}
       <div id="auth-error" style="display:none;font-size:11px;color:var(--red);letter-spacing:1px;text-align:center;padding:8px;"></div>
       <button id="auth-submit-btn" onclick="submitAuth()" class="btn btn-primary" style="width:100%;margin-top:4px;font-size:15px;min-height:48px;">SIGN IN</button>
     </div>
-
     <div id="auth-trial-info" style="display:none;text-align:center;margin-top:20px;font-size:11px;color:var(--muted);line-height:1.8;">
       After your free trial, BayBook is $7.99/month.<br>Cancel anytime.
     </div>
@@ -764,265 +760,6 @@ input[type="date"].form-input{color-scheme:dark;}
 <div class="toast" id="toast"></div>
 
 <script>
-
-// ══ API CONFIG ══
-const API_URL = 'https://baybook-server-production.up.railway.app';
-const SYNC_KEY = 'gos_sync_queue';
-const SESSION_KEY = 'gos_session';
-const USER_KEY = 'gos_user';
-const DIRTY_KEY = 'gos_dirty'; // tracks which records changed since last sync
-
-// ══ SESSION MANAGEMENT ══
-function getSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)); }catch{ return null; } }
-function setSession(s){ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }
-function clearSession(){ localStorage.removeItem(SESSION_KEY); localStorage.removeItem(USER_KEY); localStorage.removeItem(DIRTY_KEY); }
-function getUser(){ try{ return JSON.parse(localStorage.getItem(USER_KEY)); }catch{ return null; } }
-function setUser(u){ localStorage.setItem(USER_KEY, JSON.stringify(u)); }
-
-// ══ DIRTY TRACKING (delta sync) ══
-function getDirty(){ try{ return JSON.parse(localStorage.getItem(DIRTY_KEY))||{jobs:{},invs:{},cfg:false}; }catch{ return {jobs:{},invs:{},cfg:false}; } }
-function setDirty(d){ localStorage.setItem(DIRTY_KEY, JSON.stringify(d)); }
-function markDirty(type, id){
-  const d=getDirty();
-  if(type==='cfg') d.cfg=true;
-  else if(type==='jobs') d.jobs[id]=true;
-  else if(type==='invs') d.invs[id]=true;
-  setDirty(d);
-}
-function markDirtyDeleted(type, id){
-  const d=getDirty();
-  if(type==='jobs') d.jobs[id]='deleted';
-  else if(type==='invs') d.invs[id]='deleted';
-  setDirty(d);
-}
-function clearDirty(){ setDirty({jobs:{},invs:{},cfg:false}); }
-
-// ══ API CALLS ══
-async function apiCall(method, path, body=null){
-  const session=getSession();
-  const token=session?.access_token||session?.token||null;
-  const headers={'Content-Type':'application/json'};
-  if(token) headers['Authorization']='Bearer '+token;
-  const opts={method, headers};
-  if(body) opts.body=JSON.stringify(body);
-  try{
-    const res=await fetch(API_URL+path, opts);
-    // Attempt token refresh on 401
-    if(res.status===401){
-      const refreshed=await refreshSession();
-      if(refreshed){
-        const session2=getSession();
-        const token2=session2?.access_token||session2?.token||null;
-        if(token2) opts.headers['Authorization']='Bearer '+token2;
-        const res2=await fetch(API_URL+path, opts);
-        const data2=await res2.json();
-        if(!res2.ok) return {error:data2.error||'Request failed', status:res2.status};
-        return {data:data2};
-      }
-      return {error:'session_expired', status:401};
-    }
-    const data=await res.json();
-    if(!res.ok) return {error:data.error||'Request failed', status:res.status};
-    return {data};
-  }catch(e){
-    console.error('API fetch error:', e.message, path);
-    return {error:'fetch_failed: '+e.message};
-  }
-}
-
-// ══ TOKEN REFRESH ══
-async function refreshSession(){
-  const session=getSession();
-  if(!session?.refresh_token) return false;
-  try{
-    const res=await fetch(API_URL+'/auth/refresh',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({refresh_token:session.refresh_token})
-    });
-    if(!res.ok) return false;
-    const data=await res.json();
-    if(data.session){ setSession(data.session); return true; }
-    return false;
-  }catch(e){ return false; }
-}
-
-// Refresh token proactively every 45 minutes
-setInterval(async()=>{
-  const session=getSession();
-  if(!session) return;
-  const exp=session.expires_at;
-  if(exp && (exp - Date.now()/1000) < 300){ // refresh if <5min left
-    await refreshSession();
-  }
-}, 45*60*1000);
-
-// ══ DEBOUNCED SYNC ══
-let _syncTimer=null;
-let _syncing=false;
-function scheduleSyncToServer(){
-  clearTimeout(_syncTimer);
-  _syncTimer=setTimeout(syncToServer, 1500);
-}
-
-// ══ DELTA SYNC ENGINE ══
-async function syncToServer(){
-  if(_syncing) return;
-  const session=getSession();
-  if(!session?.access_token) return;
-  const dirty=getDirty();
-  const hasChanges=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
-  if(!hasChanges) return; // nothing to sync
-  _syncing=true;
-  updateSyncIndicator('syncing');
-  try{
-    const jobs=getJobs();
-    const invs=getInvs();
-    const cfg=getCfg();
-    // Sync config if dirty
-    if(dirty.cfg){
-      const res=await apiCall('PUT','/config',{
-        name:cfg.name,owner:cfg.owner,phone:cfg.phone,email:cfg.email,
-        address:cfg.address,prefix:cfg.prefix,currency:cfg.currency,
-        default_lr:cfg.defaultLr||'',default_tax:cfg.defaultTax||''
-      });
-      if(res.error?.startsWith('fetch_failed')||res.error==='offline'){ updateSyncIndicator('offline'); return; }
-      if(res.status===401){ clearSession(); showAuthScreen(); return; }
-    }
-    // Sync only dirty jobs
-    for(const [id, state] of Object.entries(dirty.jobs)){
-      if(state==='deleted'){
-        await apiCall('DELETE','/jobs/'+id);
-      } else {
-        const j=jobs.find(x=>x.id===id);
-        if(!j) continue;
-        const res=await apiCall('PUT','/jobs/'+j.id,{
-          id:j.id,did:j.did,year:j.year,make:j.make,model:j.model,plate:j.plate,
-          customer:j.customer,phone:j.phone,email:j.email,task:j.task,status:j.status,
-          hours:j.hours,est_hours:j.estHours||j.hours,lr:j.lr,pcost:j.pcost,tax:j.tax,
-          notes:j.notes,waiting_notes:j.waitingNotes,job_date:j.jobDate||''
-        });
-        if(res.error?.startsWith('fetch_failed')||res.error==='offline'){ updateSyncIndicator('offline'); return; }
-      }
-    }
-    // Sync only dirty invoices
-    for(const [id, state] of Object.entries(dirty.invs)){
-      if(state==='deleted'){
-        await apiCall('DELETE','/invoices/'+id);
-      } else {
-        const i=invs.find(x=>x.id===id);
-        if(!i) continue;
-        const res=await apiCall('PUT','/invoices/'+i.id,{
-          id:i.id,did:i.did,job_id:i.jobId,job_did:i.jobDid||'',
-          customer:i.customer,email:i.email||'',vehicle:i.vehicle,task:i.task,
-          hours:i.hours,lr:i.lr,pcost:i.pcost,tr:i.tr,sub:i.sub,tax:i.tax,
-          total:i.total,notes:i.notes||'',status:i.status,
-          date:i.date,paid_date:i.paidDate||null
-        });
-        if(res.error?.startsWith('fetch_failed')||res.error==='offline'){ updateSyncIndicator('offline'); return; }
-      }
-    }
-    clearDirty();
-    updateSyncIndicator('synced');
-  }catch(e){
-    updateSyncIndicator('error');
-  }finally{
-    _syncing=false;
-  }
-}
-
-// ══ RESTORE FROM SERVER ══
-async function restoreFromServer(){
-  const session=getSession();
-  if(!session?.access_token) return false;
-  updateSyncIndicator('syncing');
-  try{
-    const [jobsRes, invsRes, cfgRes] = await Promise.all([
-      apiCall('GET','/jobs'),
-      apiCall('GET','/invoices'),
-      apiCall('GET','/config')
-    ]);
-    if(jobsRes.error?.startsWith('fetch_failed')||jobsRes.error==='offline'){ updateSyncIndicator('offline'); return false; }
-    if(jobsRes.status===401){ clearSession(); showAuthScreen(); return false; }
-    if(jobsRes.data){
-      const jobs=jobsRes.data.map(j=>({
-        id:j.id,did:j.did,year:j.year||'',make:j.make||'',model:j.model||'',
-        plate:j.plate||'',customer:j.customer||'',phone:j.phone||'',email:j.email||'',
-        task:j.task||'',status:j.status||'estimate',hours:j.hours||0,
-        estHours:j.est_hours||0,lr:j.lr||0,pcost:j.pcost||0,tax:j.tax||0,
-        notes:j.notes||'',waitingNotes:j.waiting_notes||'',jobDate:j.job_date||'',
-        created:new Date(j.created_at).getTime(),updated:new Date(j.updated_at).getTime()
-      }));
-      localStorage.setItem('gos_jobs', JSON.stringify(jobs));
-    }
-    if(invsRes.data){
-      const invs=invsRes.data.map(i=>({
-        id:i.id,did:i.did,jobId:i.job_id,jobDid:i.job_did||'',
-        customer:i.customer||'',email:i.email||'',vehicle:i.vehicle||'',task:i.task||'',
-        hours:i.hours||0,lr:i.lr||0,pcost:i.pcost||0,tr:i.tr||0,sub:i.sub||0,
-        tax:i.tax||0,total:i.total||0,notes:i.notes||'',status:i.status||'unpaid',
-        date:i.date||Date.now(),paidDate:i.paid_date||null,
-        created:new Date(i.created_at).getTime()
-      }));
-      localStorage.setItem('gos_invs', JSON.stringify(invs));
-    }
-    if(cfgRes.data && cfgRes.data.name){
-      const d=cfgRes.data;
-      localStorage.setItem('gos_cfg', JSON.stringify({
-        name:d.name,owner:d.owner||'',phone:d.phone||'',email:d.email||'',
-        address:d.address||'',prefix:d.prefix||'INV',currency:d.currency||'USD',
-        defaultLr:d.default_lr||'',defaultTax:d.default_tax||''
-      }));
-    }
-    clearDirty();
-    updateSyncIndicator('synced');
-    return true;
-  }catch(e){
-    updateSyncIndicator('error');
-    return false;
-  }
-}
-
-// ══ SYNC INDICATOR ══
-function updateSyncIndicator(state){
-  const el=document.getElementById('sync-indicator');
-  if(!el) return;
-  const states={
-    syncing:{text:'⟳ Syncing...',color:'var(--muted)'},
-    synced:{text:'✓ Synced',color:'var(--green)'},
-    error:{text:'⚠ Sync failed',color:'var(--orange)'},
-    offline:{text:'◌ Offline',color:'var(--muted)'},
-    '':{text:'',color:''}
-  };
-  const s=states[state]||states[''];
-  el.textContent=s.text;
-  el.style.color=s.color;
-  if(state==='synced') setTimeout(()=>{if(el.textContent==='✓ Synced')el.textContent='';},3000);
-}
-
-// Online/offline detection
-window.addEventListener('online',()=>{ updateSyncIndicator(''); scheduleSyncToServer(); });
-window.addEventListener('offline',()=>updateSyncIndicator('offline'));
-
-// iOS Safari doesn't reliably fire the 'online' event
-// Poll every 30 seconds and sync any pending dirty records
-setInterval(()=>{
-  if(navigator.onLine && getSession()?.access_token){
-    const dirty=getDirty();
-    const hasDirty=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
-    if(hasDirty) scheduleSyncToServer();
-  }
-}, 30000);
-
-// Also sync when app comes back to foreground (user switches back from another app)
-document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden && navigator.onLine && getSession()?.access_token){
-    const dirty=getDirty();
-    const hasDirty=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
-    if(hasDirty) scheduleSyncToServer();
-  }
-});
-
 // ══ DATA ══
 function getCurrencySymbol(){
   const symbols={USD:'$',GBP:'£',EUR:'€',AUD:'A$',CAD:'C$',NZD:'NZ$',ZAR:'R',INR:'₹',JPY:'¥',MXN:'MX$',BRL:'R$',SGD:'S$',AED:'د.إ',NOK:'kr',SEK:'kr',CHF:'CHF'};
@@ -1441,10 +1178,22 @@ function openInvModalWithOverrides(j){
   const invs=getInvs(); invs.push(_pendInv); W('invs',invs);
   markDirty('invs',_pendInv.id); scheduleSyncToServer();
   const jobs=getJobs(); const ji=jobs.findIndex(x=>x.id===j.id);
-  if(ji!==-1){jobs[ji].status='invoiced'; W('jobs',jobs);}
+  if(ji!==-1){jobs[ji].status='invoiced'; W('jobs',jobs); markDirty('jobs',jobs[ji].id);}
   const _savedId=_pendInv.id;
   _pendInv=null;
   _viewInvId=_savedId;
+  // Explicitly reset all buttons — avoids stale state from previous modal open
+  document.getElementById('inv-modal-title').textContent='INVOICE';
+  document.getElementById('inv-edit-form').style.display='none';
+  document.getElementById('inv-preview').style.display='';
+  document.getElementById('inv-edit-btn').style.display='';
+  document.getElementById('inv-edit-btn').textContent='✏ EDIT INVOICE';
+  document.getElementById('inv-save-edit-btn').style.display='none';
+  document.getElementById('inv-mark-paid-btn').style.display='';
+  document.getElementById('inv-delete-btn').style.display='';
+  document.getElementById('inv-print-btn').style.display='';
+  const _emailBtn=document.getElementById('inv-email-btn');
+  if(_emailBtn) _emailBtn.style.display='';
   renderJobs(); renderJobStats(); renderInvs(); renderInvStats();
   openModal('modal-inv');
 }
@@ -1501,8 +1250,8 @@ function saveJob(){
     window._silentSave=false;
   }
   else{jobs.push({id:uid(),did:nextJID(),...data,created:Date.now()});toast('Job created!','success');}
-  // Mark changed job as dirty for delta sync
-  if(ej){ markDirty('jobs',ej); } else { const newJob=getJobs().find(j=>j.did===data.did); if(newJob) markDirty('jobs',newJob.id); }
+  // Mark changed job dirty for delta sync
+  if(ej){ markDirty('jobs',ej); } else { const _newJob=getJobs().slice(-1)[0]; if(_newJob) markDirty('jobs',_newJob.id); }
   scheduleSyncToServer();
   W('jobs',jobs); closeModal('modal-job'); renderJobs(); renderJobStats();
 }
@@ -1518,6 +1267,7 @@ function deleteJobFromModal(){
 function deleteJob(id){
   const linkedInv=getInvs().find(i=>i.jobId===id);
   if(linkedInv){
+    markDirtyDeleted('invs',linkedInv.id);
     W('invs',getInvs().filter(i=>i.jobId!==id));
   }
   markDirtyDeleted('jobs',id);
@@ -1590,11 +1340,10 @@ function renderInvs(){
 function viewInv(id){
   const inv=getInvs().find(i=>i.id===id);if(!inv)return;
   const cfg=getCfg();
-  const d=new Date(inv.date).toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-  // Look up plate from linked job since invoice doesn't store it
   const linkedJob=inv.jobId?getJobs().find(j=>j.id===inv.jobId):null;
   const plate=inv.plate||linkedJob?.plate||'—';
   const phone=linkedJob?.phone||'';
+  const d=new Date(inv.date).toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   document.getElementById('inv-modal-title').textContent='INVOICE';
   document.getElementById('inv-edit-form').style.display='none';
   document.getElementById('inv-preview').style.display='';
@@ -1692,7 +1441,7 @@ function saveInvEdit(){
   if(jobDate){
     const jobs=getJobs();
     const ji=jobs.findIndex(j=>j.id===invs[i].jobId);
-    if(ji!==-1){jobs[ji].jobDate=jobDate;W('jobs',jobs);}
+    if(ji!==-1){jobs[ji].jobDate=jobDate;W('jobs',jobs);markDirty('jobs',jobs[ji].id);scheduleSyncToServer();}
   }
   renderInvs();renderInvStats();renderJobs();renderJobStats();
   toast('Invoice updated.','success');
@@ -1744,7 +1493,11 @@ function saveAndGetInv(){
   return null;
 }
 function markInvPaid(){
-  if(_pendInv){_pendInv.status='paid';saveAndGetInv();}
+  if(_pendInv){
+    _pendInv.status='paid';
+    const saved=saveAndGetInv();
+    if(saved){markDirty('invs',saved.id);if(saved.jobId)markDirty('jobs',saved.jobId);scheduleSyncToServer();}
+  }
   else if(_viewInvId)markPaid(_viewInvId);
   closeModal('modal-inv');renderInvs();renderInvStats();renderJobStats();renderJobs();toast('Invoice marked as paid!','success');
 }
@@ -1820,7 +1573,12 @@ function emailInv(){
       return;
     }
   }
-  // Desktop: download then open mailto
+  // Android: open email app directly
+  if(window.Capacitor||window.cordova){
+    window.open(mailtoLink,'_system');
+    return;
+  }
+  // Desktop/iOS: download then open mailto
   downloadInv(html,filename);
   setTimeout(()=>window.location.href=mailtoLink,800);
 }
@@ -1849,13 +1607,128 @@ body{font-family:'JetBrains Mono',monospace;background:#fff;color:#111;padding:4
 </head><body>${content}</body></html>`;
 }
 
-function downloadInv(html,filename){
+async function downloadInv(html,filename){
+  const isCapacitor=window.Capacitor!==undefined||navigator.userAgent.includes('wv');
+  const inv=_viewInvId?getInvs().find(i=>i.id===_viewInvId):null;
+  const cfg=getCfg();
+  const s=getCurrencySymbol();
+
+  if(window.jspdf){
+    try{
+      const {jsPDF}=window.jspdf;
+      const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+      const lm=20,rm=190,pw=170;
+      let y=20;
+
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(22);
+      doc.setTextColor(0,0,0);
+      doc.text(cfg.name||'MY GARAGE',lm,y);
+      doc.setFontSize(8);
+      doc.setFont('helvetica','normal');
+      doc.setTextColor(100,100,100);
+      doc.text('TAX INVOICE',lm,y+5);
+      if(cfg.address){doc.text(cfg.address,lm,y+10);y+=3;}
+      const contact=[cfg.phone,cfg.email].filter(Boolean).join('  ·  ');
+      if(contact)doc.text(contact,lm,y+13);
+
+      doc.setFontSize(9);doc.setTextColor(80,80,80);
+      if(inv){
+        doc.text('Invoice: '+inv.did,rm,y,{align:'right'});
+        doc.text('Date: '+new Date(inv.date).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}),rm,y+5,{align:'right'});
+        const sc=inv.status==='paid'?[34,168,90]:[200,50,50];
+        doc.setTextColor(...sc);doc.setFont('helvetica','bold');
+        doc.text(inv.status==='unpaid'?'Due: On receipt':'Status: '+inv.status.toUpperCase(),rm,y+10,{align:'right'});
+        doc.setTextColor(80,80,80);doc.setFont('helvetica','normal');
+      }
+      y+=28;
+      doc.setDrawColor(200,200,200);doc.line(lm,y,rm,y);y+=8;
+
+      doc.setFontSize(7);doc.setTextColor(120,120,120);doc.setFont('helvetica','bold');
+      doc.text('BILL TO',lm,y);y+=5;
+      doc.setFontSize(10);doc.setTextColor(0,0,0);doc.setFont('helvetica','bold');
+      if(inv)doc.text(inv.customer||'',lm,y);y+=5;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(80,80,80);
+      const linkedJob=inv?.jobId?getJobs().find(j=>j.id===inv.jobId):null;
+      if(linkedJob?.phone){doc.text(linkedJob.phone,lm,y);y+=4;}
+      if(inv?.email){doc.text(inv.email,lm,y);y+=4;}
+      y+=4;
+
+      doc.setFontSize(7);doc.setTextColor(120,120,120);doc.setFont('helvetica','bold');
+      doc.text('VEHICLE',lm,y);y+=5;
+      doc.setFontSize(10);doc.setTextColor(0,0,0);doc.setFont('helvetica','normal');
+      if(inv)doc.text(inv.vehicle||'',lm,y);
+      const plate=inv?.plate||linkedJob?.plate||'';
+      if(plate)doc.text('Plate: '+plate,rm,y,{align:'right'});
+      y+=10;
+
+      doc.setFontSize(7);doc.setTextColor(120,120,120);doc.setFont('helvetica','bold');
+      doc.text('WORK PERFORMED',lm,y);y+=5;
+      doc.setFontSize(10);doc.setTextColor(0,0,0);doc.setFont('helvetica','normal');
+      if(inv)doc.text(inv.task||'',lm,y);y+=6;
+      if(inv?.notes){
+        doc.setFontSize(9);doc.setTextColor(100,100,100);
+        const nl=doc.splitTextToSize(inv.notes,pw);
+        doc.text(nl,lm,y);y+=nl.length*4+2;
+      }
+      y+=4;
+
+      doc.setFontSize(7);doc.setTextColor(120,120,120);doc.setFont('helvetica','bold');
+      doc.text('CHARGES',lm,y);y+=2;
+      doc.setDrawColor(200,200,200);doc.line(lm,y+2,rm,y+2);y+=6;
+      doc.setFontSize(10);doc.setTextColor(0,0,0);doc.setFont('helvetica','normal');
+      if(inv?.hours>0){
+        doc.text('Labour — '+inv.hours+' hrs @ '+s+inv.lr+'/hr',lm,y);
+        doc.text(s+((inv.hours||0)*(inv.lr||0)).toFixed(2),rm,y,{align:'right'});y+=6;
+      }
+      if(inv?.pcost>0){
+        doc.text('Parts & Materials',lm,y);
+        doc.text(s+(inv.pcost||0).toFixed(2),rm,y,{align:'right'});y+=6;
+      }
+      y+=2;doc.line(lm,y,rm,y);y+=6;
+      doc.setFontSize(9);doc.setTextColor(80,80,80);
+      doc.text('Subtotal',lm,y);doc.text(s+(inv?.sub||0).toFixed(2),rm,y,{align:'right'});y+=5;
+      if(inv?.tr>0){
+        doc.text('Tax ('+inv.tr+'%)',lm,y);
+        doc.text(s+(inv?.tax||0).toFixed(2),rm,y,{align:'right'});y+=5;
+      }
+      y+=2;doc.setDrawColor(0,0,0);doc.setLineWidth(0.5);doc.line(lm,y,rm,y);y+=7;
+      doc.setFont('helvetica','bold');doc.setFontSize(14);doc.setTextColor(0,0,0);
+      doc.text('TOTAL DUE',lm,y);doc.text(s+(inv?.total||0).toFixed(2),rm,y,{align:'right'});
+      doc.setLineWidth(0.2);y+=12;
+      doc.setDrawColor(200,200,200);doc.line(lm,y,rm,y);y+=6;
+      doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(120,120,120);
+      doc.text('Thank you for your business.',lm+(pw/2),y,{align:'center'});
+
+      if(isCapacitor){
+        // Upload PDF to Railway server then open HTTPS URL via _system
+        const b64=doc.output('datauristring').split(',')[1];
+        const pdfFilename=filename.replace('.html','.pdf');
+        toast('Preparing PDF...','');
+        const res=await apiCall('POST','/invoice/temp',{data:b64,filename:pdfFilename});
+        if(res.error){
+          toast('Could not generate PDF link. Check your connection.','error');
+          return;
+        }
+        window.open(res.data.url,'_system');
+        toast('Invoice PDF opened — tap Download or Share to save.','success');
+      } else {
+        doc.save(filename.replace('.html','.pdf'));
+        toast('Invoice saved as PDF.','success');
+      }
+      return;
+    }catch(e){
+      console.error('jsPDF error:',e.message);
+    }
+  }
+
+  // Fallback — HTML download
   const blob=new Blob([html],{type:'text/html'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;a.download=filename;a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
-  toast('Invoice saved — open the file and print/save as PDF.','success');
+  toast('Invoice saved.','success');
 }
 
 // ══ INCOME ══
@@ -2050,7 +1923,260 @@ document.addEventListener('click',e=>{
   if(invMenu&&!e.target.closest('.sort-wrap'))invMenu.style.display='none';
 });
 
-// ══ AUTH FUNCTIONS ══
+// ══ V2: CONSTANTS ══
+const API_URL='https://baybook-server-production.up.railway.app';
+const SESSION_KEY='gos_session';
+const USER_KEY='gos_user';
+const DIRTY_KEY='gos_dirty';
+const SYNC_KEY='gos_sync_queue';
+
+// ══ V2: SESSION MANAGEMENT ══
+function getSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)); }catch{ return null; } }
+function setSession(s){ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }
+function clearSession(){ localStorage.removeItem(SESSION_KEY); localStorage.removeItem(USER_KEY); localStorage.removeItem(DIRTY_KEY); }
+function getUser(){ try{ return JSON.parse(localStorage.getItem(USER_KEY)); }catch{ return null; } }
+function setUser(u){ localStorage.setItem(USER_KEY, JSON.stringify(u)); }
+
+// ══ V2: DIRTY TRACKING (delta sync) ══
+function getDirty(){ try{ return JSON.parse(localStorage.getItem(DIRTY_KEY))||{jobs:{},invs:{},cfg:false}; }catch{ return {jobs:{},invs:{},cfg:false}; } }
+function setDirty(d){ localStorage.setItem(DIRTY_KEY, JSON.stringify(d)); }
+function markDirty(type, id){
+  const d=getDirty();
+  if(type==='cfg') d.cfg=true;
+  else if(type==='jobs') d.jobs[id]=true;
+  else if(type==='invs') d.invs[id]=true;
+  setDirty(d);
+}
+function markDirtyDeleted(type, id){
+  const d=getDirty();
+  if(type==='jobs') d.jobs[id]='deleted';
+  else if(type==='invs') d.invs[id]='deleted';
+  setDirty(d);
+}
+function clearDirty(){ setDirty({jobs:{},invs:{},cfg:false}); }
+
+// ══ V2: API CALLS ══
+async function apiCall(method, path, body=null){
+  const session=getSession();
+  const token=session?.access_token||session?.token||null;
+  const headers={'Content-Type':'application/json'};
+  if(token) headers['Authorization']='Bearer '+token;
+  const opts={method, headers};
+  if(body) opts.body=JSON.stringify(body);
+  try{
+    const res=await fetch(API_URL+path, opts);
+    if(res.status===401){
+      const refreshed=await refreshSession();
+      if(refreshed){
+        const session2=getSession();
+        const token2=session2?.access_token||session2?.token||null;
+        if(token2) opts.headers['Authorization']='Bearer '+token2;
+        const res2=await fetch(API_URL+path, opts);
+        const data2=await res2.json();
+        if(!res2.ok) return {error:data2.error||'Request failed', status:res2.status};
+        return {data:data2};
+      }
+      return {error:'session_expired', status:401};
+    }
+    const data=await res.json();
+    if(!res.ok) return {error:data.error||'Request failed', status:res.status};
+    return {data};
+  }catch(e){
+    console.error('API fetch error:', e.message, path);
+    return {error:'fetch_failed: '+e.message};
+  }
+}
+
+// ══ V2: TOKEN REFRESH ══
+async function refreshSession(){
+  const session=getSession();
+  if(!session?.refresh_token) return false;
+  try{
+    const res=await fetch(API_URL+'/auth/refresh',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({refresh_token:session.refresh_token})
+    });
+    if(!res.ok) return false;
+    const data=await res.json();
+    if(data.session){ setSession(data.session); return true; }
+    return false;
+  }catch(e){ return false; }
+}
+
+// Refresh token proactively every 45 minutes
+setInterval(async()=>{
+  const session=getSession();
+  if(!session) return;
+  const exp=session.expires_at;
+  if(exp && (exp - Date.now()/1000) < 300){
+    await refreshSession();
+  }
+}, 45*60*1000);
+
+// ══ V2: DEBOUNCED SYNC ══
+let _syncTimer=null;
+let _syncing=false;
+function scheduleSyncToServer(){
+  clearTimeout(_syncTimer);
+  _syncTimer=setTimeout(syncToServer, 1500);
+}
+
+// ══ V2: DELTA SYNC ENGINE ══
+async function syncToServer(){
+  if(_syncing) return;
+  const session=getSession();
+  if(!session?.access_token) return;
+  const dirty=getDirty();
+  const hasChanges=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
+  if(!hasChanges) return;
+  _syncing=true;
+  updateSyncIndicator('syncing');
+  try{
+    const jobs=getJobs();
+    const invs=getInvs();
+    const cfg=getCfg();
+    if(dirty.cfg){
+      const res=await apiCall('PUT','/config',{
+        name:cfg.name,owner:cfg.owner,phone:cfg.phone,email:cfg.email,
+        address:cfg.address,prefix:cfg.prefix,currency:cfg.currency,
+        default_lr:cfg.defaultLr||'',default_tax:cfg.defaultTax||''
+      });
+      if(res.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
+      if(res.status===401){ clearSession(); showAuthScreen(); return; }
+    }
+    for(const [id, state] of Object.entries(dirty.jobs)){
+      if(state==='deleted'){
+        await apiCall('DELETE','/jobs/'+id);
+      } else {
+        const j=jobs.find(x=>x.id===id);
+        if(!j) continue;
+        const res=await apiCall('PUT','/jobs/'+j.id,{
+          id:j.id,did:j.did,year:j.year,make:j.make,model:j.model,plate:j.plate,
+          customer:j.customer,phone:j.phone,email:j.email,task:j.task,status:j.status,
+          hours:j.hours,est_hours:j.estHours||j.hours,lr:j.lr,pcost:j.pcost,tax:j.tax,
+          notes:j.notes,waiting_notes:j.waitingNotes,job_date:j.jobDate||''
+        });
+        if(res.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
+      }
+    }
+    for(const [id, state] of Object.entries(dirty.invs)){
+      if(state==='deleted'){
+        await apiCall('DELETE','/invoices/'+id);
+      } else {
+        const i=invs.find(x=>x.id===id);
+        if(!i) continue;
+        const res=await apiCall('PUT','/invoices/'+i.id,{
+          id:i.id,did:i.did,job_id:i.jobId,job_did:i.jobDid||'',
+          customer:i.customer,email:i.email||'',vehicle:i.vehicle,plate:i.plate||'',task:i.task,
+          hours:i.hours,lr:i.lr,pcost:i.pcost,tr:i.tr,sub:i.sub,tax:i.tax,
+          total:i.total,notes:i.notes||'',status:i.status,
+          date:i.date,paid_date:i.paidDate||null
+        });
+        if(res.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
+      }
+    }
+    clearDirty();
+    updateSyncIndicator('synced');
+  }catch(e){
+    updateSyncIndicator('error');
+  }finally{
+    _syncing=false;
+  }
+}
+
+// ══ V2: RESTORE FROM SERVER ══
+async function restoreFromServer(){
+  const session=getSession();
+  if(!session?.access_token) return false;
+  updateSyncIndicator('syncing');
+  try{
+    const [jobsRes, invsRes, cfgRes] = await Promise.all([
+      apiCall('GET','/jobs'),
+      apiCall('GET','/invoices'),
+      apiCall('GET','/config')
+    ]);
+    if(jobsRes.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return false; }
+    if(jobsRes.status===401){ clearSession(); showAuthScreen(); return false; }
+    if(jobsRes.data){
+      const jobs=jobsRes.data.map(j=>({
+        id:j.id,did:j.did,year:j.year||'',make:j.make||'',model:j.model||'',
+        plate:j.plate||'',customer:j.customer||'',phone:j.phone||'',email:j.email||'',
+        task:j.task||'',status:j.status||'estimate',hours:j.hours||0,
+        estHours:j.est_hours||0,lr:j.lr||0,pcost:j.pcost||0,tax:j.tax||0,
+        notes:j.notes||'',waitingNotes:j.waiting_notes||'',jobDate:j.job_date||'',
+        created:new Date(j.created_at).getTime(),updated:new Date(j.updated_at).getTime()
+      }));
+      localStorage.setItem('gos_jobs', JSON.stringify(jobs));
+    }
+    if(invsRes.data){
+      const invs=invsRes.data.map(i=>({
+        id:i.id,did:i.did,jobId:i.job_id,jobDid:i.job_did||'',
+        customer:i.customer||'',email:i.email||'',vehicle:i.vehicle||'',plate:i.plate||'',task:i.task||'',
+        hours:i.hours||0,lr:i.lr||0,pcost:i.pcost||0,tr:i.tr||0,sub:i.sub||0,
+        tax:i.tax||0,total:i.total||0,notes:i.notes||'',status:i.status||'unpaid',
+        date:i.date||Date.now(),paidDate:i.paid_date||null,
+        created:new Date(i.created_at).getTime()
+      }));
+      localStorage.setItem('gos_invs', JSON.stringify(invs));
+    }
+    if(cfgRes.data && cfgRes.data.name){
+      const d=cfgRes.data;
+      localStorage.setItem('gos_cfg', JSON.stringify({
+        name:d.name,owner:d.owner||'',phone:d.phone||'',email:d.email||'',
+        address:d.address||'',prefix:d.prefix||'INV',currency:d.currency||'USD',
+        defaultLr:d.default_lr||'',defaultTax:d.default_tax||''
+      }));
+    }
+    clearDirty();
+    updateSyncIndicator('synced');
+    return true;
+  }catch(e){
+    updateSyncIndicator('error');
+    return false;
+  }
+}
+
+// ══ V2: SYNC INDICATOR ══
+function updateSyncIndicator(state){
+  const el=document.getElementById('sync-indicator');
+  if(!el) return;
+  const states={
+    syncing:{text:'⟳ Syncing...',color:'var(--muted)'},
+    synced:{text:'✓ Synced',color:'var(--green)'},
+    error:{text:'⚠ Sync failed',color:'var(--orange)'},
+    offline:{text:'◌ Offline',color:'var(--muted)'},
+    '':{text:'',color:''}
+  };
+  const s=states[state]||states[''];
+  el.textContent=s.text;
+  el.style.color=s.color;
+  if(state==='synced') setTimeout(()=>{if(el.textContent==='✓ Synced')el.textContent='';},3000);
+}
+
+// Online/offline detection
+window.addEventListener('online',()=>{ updateSyncIndicator(''); scheduleSyncToServer(); });
+window.addEventListener('offline',()=>updateSyncIndicator('offline'));
+
+// 30-second interval fallback (iOS Safari doesn't fire 'online' reliably)
+setInterval(()=>{
+  if(navigator.onLine && getSession()?.access_token){
+    const dirty=getDirty();
+    const hasDirty=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
+    if(hasDirty) scheduleSyncToServer();
+  }
+}, 30000);
+
+// Sync on app foreground
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && navigator.onLine && getSession()?.access_token){
+    const dirty=getDirty();
+    const hasDirty=dirty.cfg||Object.keys(dirty.jobs).length>0||Object.keys(dirty.invs).length>0;
+    if(hasDirty) scheduleSyncToServer();
+  }
+});
+
+// ══ V2: AUTH FUNCTIONS ══
 let _authMode='login';
 
 function switchAuthTab(mode){
@@ -2091,7 +2217,6 @@ function showApp(){
   document.getElementById('paywall-screen').style.display='none';
   document.getElementById('main-shell').style.display='grid';
   showView('jobs');
-  // Always ensure sign out button is present
   setTimeout(addSignOutToSettings, 100);
 }
 
@@ -2112,17 +2237,14 @@ async function submitAuth(){
     errEl.style.display='block';
     return;
   }
-  // Save session and user
   setSession(res.data.session);
   setUser(res.data.user);
-  // Check subscription
   await checkAccessAndLaunch();
 }
 
 async function checkAccessAndLaunch(){
   const res=await apiCall('GET','/auth/me');
   if(res.error){
-    // Offline — use cached session and launch with local data
     const session=getSession();
     if(session){
       showApp();
@@ -2144,7 +2266,6 @@ async function checkAccessAndLaunch(){
     startPaymentPolling();
     return;
   }
-  // Show trial banner prominently
   if(profile?.subscription_status==='trialing'){
     const days=res.data.trial_days_left||0;
     updateTrialBanner(days);
@@ -2194,7 +2315,6 @@ function hideTrialBanner(){
 }
 
 // ── POST-PAYMENT POLLING ──
-// Poll /auth/me every 10s while on paywall so app unlocks automatically after Stripe payment
 let _paymentPollTimer=null;
 function startPaymentPolling(){
   stopPaymentPolling();
@@ -2224,10 +2344,10 @@ async function startCheckout(){
   const res=await apiCall('POST','/stripe/checkout');
   if(btn&&btn.tagName==='BUTTON'){btn.textContent='SUBSCRIBE NOW';btn.disabled=false;}
   if(res.error){
-    toast('Error: '+res.error,'error');
+    toast(res.error==='offline'?'No internet connection.':'Error: '+res.error,'error');
     return;
   }
-  window.open(res.data.url,'_blank');
+  window.open(res.data.url,'_system');
   if(btn&&btn.tagName==='BUTTON') btn.textContent='Waiting for payment...';
 }
 
@@ -2236,12 +2356,10 @@ function signOut(){
   showAuthScreen();
 }
 
-// Add sign out option to settings
 function addSignOutToSettings(){
-  // Wait until settings content is in DOM
   const dangerZone=document.querySelector('#view-settings .content > div:last-child');
   if(!dangerZone){ setTimeout(addSignOutToSettings,200); return; }
-  if(document.getElementById('sign-out-btn')) return; // already added
+  if(document.getElementById('sign-out-btn')) return;
   const btn=document.createElement('button');
   btn.id='sign-out-btn';
   btn.className='btn btn-secondary';
@@ -2251,22 +2369,19 @@ function addSignOutToSettings(){
   dangerZone.appendChild(btn);
 }
 
-
-
-// ══ INIT ══
+// ══ V2: INIT ══
 async function initApp(){
   const session=getSession();
   if(!session?.access_token){
     showAuthScreen();
     return;
   }
-  // Have a session — check if still valid
   await checkAccessAndLaunch();
-  addSignOutToSettings();
 }
 
 initApp();
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
