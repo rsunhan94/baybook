@@ -267,10 +267,15 @@ input[type="date"].form-input{color-scheme:dark;}
   .jc-date-mobile{display:block;}
   .jc-date-desktop{display:none;}
 
-  /* Filter bar — search on own row, buttons wrap below larger */
+  /* Filter bar — search on own row, buttons in fixed grid */
   .filter-bar{gap:8px;flex-wrap:wrap;}
   .search-input{width:100%;font-size:16px;padding:12px 14px;flex:none;}
-  .filter-btn{font-size:14px;padding:12px 14px;flex:1;text-align:center;}
+  .filter-btn{font-size:13px;padding:10px 6px;flex:0 0 auto;text-align:center;white-space:nowrap;}
+  .filter-bar .sort-wrap{margin-left:0 !important;flex:0 0 auto;}
+  /* Force all filter buttons into equal-width columns so they never wrap unevenly */
+  #view-jobs .filter-bar,#view-invoices .filter-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+  #view-jobs .filter-bar .search-input,#view-invoices .filter-bar .search-input{grid-column:1/-1;}
+  #view-jobs .filter-bar .sort-wrap,#view-invoices .filter-bar .sort-wrap{grid-column:span 1;}
   .sec-head{font-size:11px;letter-spacing:2px;margin-bottom:10px;}
 
   /* Table rows */
@@ -390,7 +395,7 @@ input[type="date"].form-input{color-scheme:dark;}
     <div style="display:flex;flex-direction:column;gap:12px;">
       <div>
         <label style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:700;display:block;margin-bottom:4px;">Email</label>
-        <input id="auth-email" type="email" class="form-input" placeholder="mike@mygarage.com" style="font-size:16px;width:100%;" autocomplete="email">
+        <input id="auth-email" type="email" class="form-input" placeholder="your@email.com" style="font-size:16px;width:100%;" autocomplete="email">
       </div>
       <div>
         <label style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:700;display:block;margin-bottom:4px;">Password</label>
@@ -458,7 +463,7 @@ input[type="date"].form-input{color-scheme:dark;}
       <button class="filter-btn" data-jf="estimate" onclick="setJF('estimate',this)">Estimate</button>
       <button class="filter-btn" data-jf="inprogress" onclick="setJF('inprogress',this)">In Progress</button>
       <button class="filter-btn" data-jf="waiting" onclick="setJF('waiting',this)">Waiting Parts</button>
-      <button class="filter-btn" data-jf="done" onclick="setJF('done',this)">Job Done</button>
+      <button class="filter-btn" data-jf="done" onclick="setJF('done',this)">Done / No Invoice</button>
       <button class="filter-btn" data-jf="invoiced" onclick="setJF('invoiced',this)">Invoiced</button>
       <button class="filter-btn" data-jf="paid" onclick="setJF('paid',this)">Paid</button>
       <div class="sort-wrap" style="margin-left:auto;position:relative;">
@@ -1250,10 +1255,12 @@ function saveJob(){
     window._silentSave=false;
   }
   else{jobs.push({id:uid(),did:nextJID(),...data,created:Date.now()});toast('Job created!','success');}
+  // Write to localStorage BEFORE markDirty so getJobs() sees the new job
+  W('jobs',jobs);
   // Mark changed job dirty for delta sync
   if(ej){ markDirty('jobs',ej); } else { const _newJob=getJobs().slice(-1)[0]; if(_newJob) markDirty('jobs',_newJob.id); }
   scheduleSyncToServer();
-  W('jobs',jobs); closeModal('modal-job'); renderJobs(); renderJobStats();
+  closeModal('modal-job'); renderJobs(); renderJobStats();
 }
 function deleteJobFromModal(){
   if(!ej)return;
@@ -1435,8 +1442,8 @@ function saveInvEdit(){
   const i=invs.findIndex(x=>x.id===_viewInvId);
   if(i===-1){toast('Invoice not found.','error');return;}
   invs[i]={...invs[i],hours,lr,pcost,tr:tax,sub,tax:taxA,total,notes,updated:Date.now()};
-  markDirty('invs',_viewInvId); scheduleSyncToServer();
   W('invs',invs);
+  markDirty('invs',_viewInvId); scheduleSyncToServer();
   // Save date completed back to the linked job
   if(jobDate){
     const jobs=getJobs();
@@ -1813,8 +1820,8 @@ function loadSettings(){
   document.getElementById('s-tax').value=c.defaultTax||'';
 }
 function saveSettings(){
-  markDirty('cfg'); scheduleSyncToServer();
   W('cfg',{name:document.getElementById('s-name').value.trim(),owner:document.getElementById('s-owner').value.trim(),phone:document.getElementById('s-phone').value.trim(),email:document.getElementById('s-email').value.trim(),address:document.getElementById('s-address').value.trim(),prefix:document.getElementById('s-prefix').value.trim()||'INV',currency:document.getElementById('s-currency').value||'USD',defaultLr:document.getElementById('s-lr').value.trim(),defaultTax:document.getElementById('s-tax').value.trim()});
+  markDirty('cfg'); scheduleSyncToServer();
   renderJobs();renderJobStats();renderInvs();renderInvStats();if(document.getElementById('view-income').classList.contains('active'))renderIncome();
   const ind=document.getElementById('settings-saved');
   if(ind){ind.style.opacity='1';clearTimeout(ind._t);ind._t=setTimeout(()=>ind.style.opacity='0',1500);}
@@ -1825,8 +1832,20 @@ function csvCell(v){
   if(s.includes(',')||s.includes('"')||s.includes('\n')) return '"'+s.replace(/"/g,'""')+'"';
   return s;
 }
-function downloadCSV(filename, rows){
+async function downloadCSV(filename, rows){
   const csv=rows.map(r=>r.map(csvCell).join(',')).join('\n');
+  const isCapacitor=window.Capacitor!==undefined||navigator.userAgent.includes('wv');
+  if(isCapacitor){
+    // Encode CSV as base64 and upload to Railway for a real HTTPS download URL
+    const b64=btoa(unescape(encodeURIComponent(csv)));
+    toast('Preparing export...','');
+    const res=await apiCall('POST','/invoice/temp',{data:b64,filename});
+    if(res.error){toast('Export failed. Check your connection.','error');return;}
+    window.open(res.data.url,'_system');
+    toast('File ready — tap Download to save.','success');
+    return;
+  }
+  // Desktop — download directly
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -1837,7 +1856,7 @@ const _statusLabels={estimate:'Estimate',inprogress:'In Progress',waiting:'Waiti
 function exportJobsCSV(){
   const jobs=getJobs();
   if(!jobs.length){toast('No jobs to export.','error');return;}
-  const headers=['Job #','Year','Make','Model','Plate','Customer','Phone','Email','Work Description','Status','Job Completed On','Est. Labour Hours','Est. Labour Rate','Est. Parts Cost','Est. Tax Rate','Est. Total','Waiting Notes','Notes','Date Added'];
+  const headers=['Job #','Year','Make','Model','Plate','Customer','Phone','Email','Work Description','Status','Job Completed On','Est. Labour Hours','Est. Labour Rate','Est. Parts Cost','Est. Tax Rate','Est. Total','Waiting Parts Notes','Notes','Date Added'];
   const rows=[headers,...jobs.map(j=>{
     const estLabour=(j.hours||0)*(j.lr||0);
     const estSub=estLabour+(j.pcost||0);
@@ -1870,8 +1889,16 @@ function exportInvoicesCSV(){
   downloadCSV('garageos-invoices.csv', rows);
   toast('Invoices exported!','success');
 }
-function clearAllData(){
+async function clearAllData(){
+  // Delete all records from server before wiping localStorage
+  const jobs=getJobs();
+  const invs=getInvs();
+  toast('Clearing data...','');
+  for(const j of jobs){ await apiCall('DELETE','/jobs/'+j.id); }
+  for(const i of invs){ await apiCall('DELETE','/invoices/'+i.id); }
+  await apiCall('DELETE','/config');
   ['jobs','invs','cfg'].forEach(k=>localStorage.removeItem('gos_'+k));
+  localStorage.removeItem('gos_dirty');
   _incomeYear=new Date().getFullYear();
   renderJobs();renderJobStats();renderInvs();renderInvStats();renderIncome();loadSettings();
   showView('jobs');
@@ -1933,7 +1960,7 @@ const SYNC_KEY='gos_sync_queue';
 // ══ V2: SESSION MANAGEMENT ══
 function getSession(){ try{ return JSON.parse(localStorage.getItem(SESSION_KEY)); }catch{ return null; } }
 function setSession(s){ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }
-function clearSession(){ localStorage.removeItem(SESSION_KEY); localStorage.removeItem(USER_KEY); localStorage.removeItem(DIRTY_KEY); }
+function clearSession(){ localStorage.removeItem(SESSION_KEY); localStorage.removeItem(USER_KEY); localStorage.removeItem(DIRTY_KEY); localStorage.removeItem('gos_profile'); }
 function getUser(){ try{ return JSON.parse(localStorage.getItem(USER_KEY)); }catch{ return null; } }
 function setUser(u){ localStorage.setItem(USER_KEY, JSON.stringify(u)); }
 
@@ -1966,6 +1993,11 @@ async function apiCall(method, path, body=null){
   try{
     const res=await fetch(API_URL+path, opts);
     if(res.status===401){
+      // Auth endpoints return 401 for wrong credentials — pass error through directly
+      if(path==='/auth/login'||path==='/auth/register'){
+        const data=await res.json();
+        return {error:data.error||'Invalid email or password', status:401};
+      }
       const refreshed=await refreshSession();
       if(refreshed){
         const session2=getSession();
@@ -2044,10 +2076,13 @@ async function syncToServer(){
       });
       if(res.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
       if(res.status===401){ clearSession(); showAuthScreen(); return; }
+      if(res.error){ updateSyncIndicator('error'); return; }
     }
     for(const [id, state] of Object.entries(dirty.jobs)){
       if(state==='deleted'){
-        await apiCall('DELETE','/jobs/'+id);
+        const delRes=await apiCall('DELETE','/jobs/'+id);
+        if(delRes.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
+        if(delRes.error){ updateSyncIndicator('error'); return; }
       } else {
         const j=jobs.find(x=>x.id===id);
         if(!j) continue;
@@ -2058,11 +2093,14 @@ async function syncToServer(){
           notes:j.notes,waiting_notes:j.waitingNotes,job_date:j.jobDate||''
         });
         if(res.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
+        if(res.error){ updateSyncIndicator('error'); return; }
       }
     }
     for(const [id, state] of Object.entries(dirty.invs)){
       if(state==='deleted'){
-        await apiCall('DELETE','/invoices/'+id);
+        const delRes=await apiCall('DELETE','/invoices/'+id);
+        if(delRes.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
+        if(delRes.error){ updateSyncIndicator('error'); return; }
       } else {
         const i=invs.find(x=>x.id===id);
         if(!i) continue;
@@ -2074,6 +2112,7 @@ async function syncToServer(){
           date:i.date,paid_date:i.paidDate||null
         });
         if(res.error?.startsWith('fetch_failed')){ updateSyncIndicator('offline'); return; }
+        if(res.error){ updateSyncIndicator('error'); return; }
       }
     }
     clearDirty();
@@ -2247,6 +2286,15 @@ async function checkAccessAndLaunch(){
   if(res.error){
     const session=getSession();
     if(session){
+      // Show trial banner from cached profile if available
+      try{
+        const cachedProfile=JSON.parse(localStorage.getItem('gos_profile')||'null');
+        if(cachedProfile?.subscription_status==='trialing'){
+          const trialEnds=new Date(cachedProfile.trial_ends_at);
+          const daysLeft=Math.ceil((trialEnds-new Date())/(1000*60*60*24));
+          if(daysLeft>0) updateTrialBanner(daysLeft);
+        }
+      }catch(e){}
       showApp();
       renderJobs();renderJobStats();
       const localJobs=getJobs();
@@ -2260,6 +2308,8 @@ async function checkAccessAndLaunch(){
   if(res.status===401){clearSession();showAuthScreen();return;}
   if(res.data.session) setSession(res.data.session);
   const profile=res.data.profile;
+  // Cache profile locally so banner can show when offline
+  if(profile) localStorage.setItem('gos_profile', JSON.stringify({subscription_status:profile.subscription_status,trial_ends_at:profile.trial_ends_at}));
   const hasAccess=res.data.access;
   if(!hasAccess){
     showPaywall();
