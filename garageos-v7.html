@@ -975,7 +975,7 @@ function showView(name) {
   document.querySelectorAll('.nav').forEach(n=>n.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelector(`[data-view="${name}"]`).classList.add('active');
-  ({dashboard:renderDashboard,jobs:()=>{renderJobs();renderJobStats();},invoices:()=>{renderInvs();renderInvStats();},income:renderIncome,settings:()=>{loadSettings();addSignOutToSettings();}})[name]?.();
+  ({dashboard:renderDashboard,jobs:()=>{jf='all';document.querySelectorAll('[data-jf]').forEach(b=>b.classList.toggle('active',b.dataset.jf==='all'));const _js=document.getElementById('job-search');if(_js)_js.value='';renderJobs();renderJobStats();},invoices:()=>{invF='all';document.querySelectorAll('[data-invf]').forEach(b=>b.classList.toggle('active',b.dataset.invf==='all'));const _is=document.getElementById('inv-search');if(_is)_is.value='';renderInvs();renderInvStats();},income:renderIncome,settings:()=>{loadSettings();addSignOutToSettings();}})[name]?.();
 }
 
 // ══ JOBS ══
@@ -2036,18 +2036,20 @@ async function clearAllData(){
   const jobs=getJobs();
   const invs=getInvs();
   let hasError=false;
+  const isDelErr=r=>r.error&&!r.error.startsWith('fetch_failed')&&r.status!==404;
   try{
     for(const j of jobs){
       const r=await apiCall('DELETE','/jobs/'+j.id);
-      if(r.error&&!r.error.startsWith('fetch_failed')){hasError=true;}
+      if(isDelErr(r)){console.error('Clear jobs error:',r.error,r.status);hasError=true;}
     }
     for(const i of invs){
       const r=await apiCall('DELETE','/invoices/'+i.id);
-      if(r.error&&!r.error.startsWith('fetch_failed')){hasError=true;}
+      if(isDelErr(r)){console.error('Clear invs error:',r.error,r.status);hasError=true;}
     }
     const r=await apiCall('DELETE','/config');
-    if(r.error&&!r.error.startsWith('fetch_failed')){hasError=true;}
+    if(isDelErr(r)){console.error('Clear config error:',r.error,r.status);hasError=true;}
   }catch(e){
+    console.error('Clear all data exception:',e);
     hasError=true;
   }
   if(hasError){
